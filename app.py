@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+from PIL import Image
 
 st.set_page_config(
     page_title="CNN Scene Classification Results",
@@ -24,6 +25,54 @@ results = load_results()
 classes = results["classes"]
 cm = np.array(results["confusion_matrix"])
 epochs = list(range(1, results["epochs"] + 1))
+
+
+# ---------------------------------------------------------------------------
+# Inference: exact NumPy implementation of the trained PyTorch CNN.
+# The weights were exported from best_cnn_model.pth, so predictions match the
+# original model while Streamlit Cloud only needs numpy + Pillow (no torch).
+# ---------------------------------------------------------------------------
+@st.cache_resource
+def load_weights():
+    with np.load(BASE / "cnn_weights.npz") as data:
+        return {key: data[key] for key in data.files}
+
+
+def conv_bn_relu_pool(x, weight, gamma, beta, mean, var):
+    """One Conv(3x3, pad=1) -> BatchNorm(eval) -> ReLU -> MaxPool(2) block."""
+    channels, height, width = x.shape
+    padded = np.pad(x, ((0, 0), (1, 1), (1, 1)))
+    windows = np.lib.stride_tricks.sliding_window_view(padded, (3, 3), axis=(1, 2))
+    cols = np.transpose(windows, (1, 2, 0, 3, 4)).reshape(height * width, channels * 9)
+    out = cols @ weight.reshape(weight.shape[0], -1).T
+    out = out.reshape(height, width, -1).transpose(2, 0, 1)
+    out = (out - mean[:, None, None]) / np.sqrt(var[:, None, None] + 1e-5)
+    out = out * gamma[:, None, None] + beta[:, None, None]
+    out = np.maximum(out, 0)
+    return out.reshape(out.shape[0], out.shape[1] // 2, 2, out.shape[2] // 2, 2).max(axis=(2, 4))
+
+
+def predict_image(image, weights):
+    """Return a probability array over the 6 classes for a PIL image."""
+    resample = getattr(Image, "Resampling", Image).BICUBIC
+    arr = np.asarray(image.convert("RGB").resize((96, 96), resample), dtype=np.float32) / 255.0
+    x = ((arr - 0.5) / 0.5).transpose(2, 0, 1)
+
+    for i in range(3):
+        x = conv_bn_relu_pool(
+            x,
+            weights[f"conv{i}_w"],
+            weights[f"bn{i}_gamma"],
+            weights[f"bn{i}_beta"],
+            weights[f"bn{i}_mean"],
+            weights[f"bn{i}_var"],
+        )
+
+    x = x.reshape(128, 4, 3, 4, 3).mean(axis=(2, 4)).reshape(-1)
+    x = np.maximum(weights["fc1_w"] @ x + weights["fc1_b"], 0)
+    logits = weights["fc2_w"] @ x + weights["fc2_b"]
+    exp = np.exp(logits - logits.max())
+    return exp / exp.sum()
 
 st.title("Intel Image Classification — CNN Results")
 st.caption(
@@ -58,8 +107,8 @@ col4.metric(
 
 st.markdown("---")
 
-tab_overview, tab_curves, tab_cm, tab_files = st.tabs(
-    ["Overview", "Training curves", "Confusion matrix", "Model & files"]
+tab_overview, tab_predict, tab_curves, tab_cm, tab_files = st.tabs(
+    ["Overview", "Try an image", "Training curves", "Confusion matrix", "Model & files"]
 )
 
 # ---------------------------------------------------------------------------
@@ -132,6 +181,57 @@ with tab_overview:
 4. Transfer learning from an ImageNet-pretrained backbone and cosine learning-rate annealing with early stopping would likely add several points while reducing training time.
         """
     )
+
+# ---------------------------------------------------------------------------
+# Try an image
+# ---------------------------------------------------------------------------
+with tab_predict:
+    st.subheader("Classify your own image")
+    st.write(
+        "Upload a JPG, JPEG or PNG image of a scene. It is resized to 96×96 and passed "
+        "through the exact trained CNN above — the same preprocessing used during training."
+    )
+
+    uploaded = st.file_uploader(
+        "Choose an image", type=["jpg", "jpeg", "png"], help=" buildings · forest · glacier · mountain · sea · street"
+    )
+
+    if uploaded is None:
+        st.info("Upload an image above to see the model's prediction.")
+    else:
+        image = Image.open(uploaded)
+        preview_col, result_col = st.columns([1, 2])
+
+        with preview_col:
+            st.image(image, caption=f"{uploaded.name} · {image.size[0]}×{image.size[1]}", width="stretch")
+
+        with result_col:
+            if st.button("Classify image", type="primary"):
+                with st.spinner("Running the CNN…"):
+                    probabilities = predict_image(image, load_weights())
+
+                best = int(np.argmax(probabilities))
+                st.success(f"**{classes[best]}** — {probabilities[best] * 100:.1f}% confidence")
+
+                st.markdown("**Confidence for all six classes**")
+                st.bar_chart(
+                    pd.DataFrame({"Class": classes, "Confidence": probabilities}).set_index("Class")
+                )
+
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "Class": classes,
+                            "Confidence": [f"{p * 100:.2f}%" for p in probabilities],
+                        }
+                    ).sort_values("Confidence", ascending=False, key=lambda s: s.str.rstrip("%").astype(float)),
+                    hide_index=True,
+                    width="stretch",
+                )
+                st.caption(
+                    "Tip: try a clear landscape photo similar to the training data. "
+                    "The model was trained only on these six scene categories."
+                )
 
 # ---------------------------------------------------------------------------
 # Training curves
@@ -232,6 +332,7 @@ st.sidebar.title("About")
 st.sidebar.info(
     "This dashboard reports the actual evaluation of a CNN trained on the Intel Image "
     "Classification dataset. Source results were produced by the Colab notebook and "
-    "are displayed here without modification."
+    "are displayed here without modification. Use the **Try an image** tab to classify "
+    "your own photo with the same trained model."
 )
 st.sidebar.markdown(f"**Test accuracy:** `{results['test_acc'] * 100:.2f}%`")

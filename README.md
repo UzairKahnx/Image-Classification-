@@ -1,9 +1,10 @@
 # CNN Image Classification Results Dashboard
 
 A minimal Streamlit app that presents the measured evaluation of a PyTorch CNN trained on the
-Intel Image Classification dataset (6 classes).
+Intel Image Classification dataset (6 classes), and lets you classify your own image with it.
 
-**Reported result: 88.03% test accuracy.**
+**Reported result: 88.03% test accuracy.** Open the **Try an image** tab to upload a JPG/PNG and
+see the model's prediction and confidence for all six classes.
 
 ## Files in this repo
 
@@ -12,6 +13,7 @@ Intel Image Classification dataset (6 classes).
 - `training_curves.png` — exported accuracy/loss plot
 - `confusion_matrix.png` — exported confusion matrix
 - `best_cnn_model.pth` — best validation checkpoint (available as a download in the app)
+- `cnn_weights.npz` — weights exported from the checkpoint for fast, torch-free inference
 - `requirements.txt` — Python dependencies
 
 ## Run locally
