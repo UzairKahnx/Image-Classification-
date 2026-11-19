@@ -25,6 +25,8 @@ streamlit run app.py
 
 ## Deploy on Streamlit Cloud
 
+[Deploy this app on Streamlit Cloud](https://share.streamlit.io/deploy?repository=UzairKahnx/Image-Classification-&branch=main&mainModule=app.py)
+
 1. Fork/push this repository to GitHub.
 2. Go to <https://share.streamlit.io/> and sign in with GitHub.
 3. **New app** → select this repository, branch `main`, main file `app.py`.
