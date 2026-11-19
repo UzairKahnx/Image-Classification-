@@ -6,6 +6,8 @@ Intel Image Classification dataset (6 classes), and lets you classify your own i
 **Reported result: 88.03% test accuracy.** Open the **Try an image** tab to upload a JPG/PNG and
 see the model's prediction and confidence for all six classes.
 
+**Live demo:** [https://uzairkahnx-image-classification--app-enn4ma.streamlit.app/](https://uzairkahnx-image-classification--app-enn4ma.streamlit.app/)
+
 ## Files in this repo
 
 - `app.py` — Streamlit dashboard
